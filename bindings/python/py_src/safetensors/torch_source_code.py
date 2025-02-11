@@ -346,8 +346,10 @@ def load_file(filename: Union[str, os.PathLike], device: Union[str, int] = "cpu"
             #f.seek(offset)
             #buffer = f.read(num_bytes)
             buffer = decrypted_data[offset : offset + num_bytes]
-
-            tensor = torch.frombuffer(buffer, dtype=dtype)
+            if device != "cpu":
+                tensor = torch.frombuffer(buffer, dtype=dtype).to(device)
+            else:
+                tensor = torch.frombuffer(buffer, dtype=dtype)
             if shape:
                 tensor = tensor.reshape(shape)
             result[key] = tensor
