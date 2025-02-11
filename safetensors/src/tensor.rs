@@ -293,6 +293,7 @@ impl<'data> SafeTensors<'data> {
         let n: usize = u64::from_le_bytes(arr)
             .try_into()
             .map_err(|_| SafeTensorError::HeaderTooLarge)?;
+        println!("header 长度:{}",n);
         if n > MAX_HEADER_SIZE {
             return Err(SafeTensorError::HeaderTooLarge);
         }
@@ -305,6 +306,7 @@ impl<'data> SafeTensors<'data> {
         }
         let string =
             core::str::from_utf8(&buffer[8..stop]).map_err(|_| SafeTensorError::InvalidHeader)?;
+        println!("header内容:{}",string);
         // Assert the string starts with {
         // NOTE: Add when we move to 0.4.0
         // if !string.starts_with('{') {
@@ -314,7 +316,8 @@ impl<'data> SafeTensors<'data> {
             .map_err(|_| SafeTensorError::InvalidHeaderDeserialization)?;
         let buffer_end = metadata.validate()?;
         if buffer_end + 8 + n != buffer_len {
-            return Err(SafeTensorError::MetadataIncompleteBuffer);
+            //qumingxing 这里由于加密,会验证不通过
+            //return Err(SafeTensorError::MetadataIncompleteBuffer);
         }
         Ok((n, metadata))
     }

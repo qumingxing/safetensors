@@ -1,6 +1,6 @@
 #![deny(missing_docs)]
 //! Dummy doc
-use memmap2::{Mmap, MmapOptions};
+use memmap2::{Mmap, MmapMut, MmapOptions};
 use pyo3::exceptions::{PyException, PyFileNotFoundError};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
@@ -333,7 +333,7 @@ impl<'py> IntoPyObject<'py> for Device {
 }
 
 enum Storage {
-    Mmap(Mmap),
+    Mmap(MmapMut),
     /// Torch specific mmap
     /// This allows us to not manage it
     /// so Pytorch can handle the whole lifecycle.
@@ -406,8 +406,9 @@ impl Open {
 
         // SAFETY: Mmap is used to prevent allocating in Rust
         // before making a copy within Python.
-        let buffer = unsafe { MmapOptions::new().map_copy_read_only(&file)? };
-
+        //let buffer = unsafe { MmapOptions::new().map_copy_read_only(&file)? };
+        let mut buffer = unsafe { MmapOptions::new().map_copy(&file)? };
+        let first_ten: [u8; 8] = buffer[0..8].try_into()?;
         let (n, metadata) = SafeTensors::read_metadata(&buffer).map_err(|e| {
             SafetensorError::new_err(format!("Error while deserializing header: {e:?}"))
         })?;
@@ -435,7 +436,6 @@ impl Open {
 
                 let version: String = module.getattr(intern!(py, "__version__"))?.extract()?;
                 let version = Version::from_string(&version).map_err(SafetensorError::new_err)?;
-
                 // Untyped storage only exists for versions over 1.11.0
                 // Same for torch.asarray which is necessary for zero-copy tensor
                 if version >= Version::new(1, 11, 0) {
@@ -464,13 +464,14 @@ impl Open {
                     let storage = untyped.call0()?.into_pyobject(py)?.into();
                     let gil_storage = GILOnceCell::new();
                     gil_storage.get_or_init(py, || storage);
-
                     Ok(Storage::TorchStorage(gil_storage))
                 } else {
                     Ok(Storage::Mmap(buffer))
                 }
-            })?,
-            _ => Storage::Mmap(buffer),
+            })?,//这里pytorch 结束
+            _ => {
+                Storage::Mmap(buffer)
+            },
         };
 
         let storage = Arc::new(storage);
@@ -502,6 +503,12 @@ impl Open {
         let mut keys: Vec<String> = self.metadata.tensors().keys().cloned().collect();
         keys.sort();
         Ok(keys)
+    }
+
+    /// test
+    pub fn key_range(&self) -> PyResult<String>{
+        let tensors_map = self.metadata.tensors();
+        Ok(serde_json::to_string(&tensors_map).unwrap())
     }
 
     /// Returns a full tensor
@@ -712,6 +719,11 @@ impl safe_open {
         self.inner()?.keys()
     }
 
+    //qumingxing
+    pub fn key_range(&self) -> PyResult<String> {
+        self.inner()?.key_range()
+    }
+
     /// Returns a full tensor
     ///
     /// Args:
@@ -904,8 +916,8 @@ impl PySafeSlice {
                             }
                             Ok(())
                         })?
-                        .into_any()
-                        .into();
+                            .into_any()
+                            .into();
                     create_tensor(
                         &self.framework,
                         self.info.dtype,
@@ -1053,7 +1065,7 @@ fn create_tensor<'a>(
                 (intern!(py, "buffer"), array),
                 (intern!(py, "dtype"), dtype),
             ]
-            .into_py_dict(py)?;
+                .into_py_dict(py)?;
             let mut tensor = module.call_method("frombuffer", (), Some(&kwargs))?;
             let sys = PyModule::import(py, intern!(py, "sys"))?;
             let byteorder: String = sys.getattr(intern!(py, "byteorder"))?.extract()?;
@@ -1073,7 +1085,7 @@ fn create_tensor<'a>(
                     let module = PyModule::import(py, intern!(py, "jax"))?;
                     Ok(FLAX_MODULE.get_or_init(py, || module.into()))
                 })?
-                .bind(py);
+                    .bind(py);
                 module
                     .getattr(intern!(py, "numpy"))?
                     .getattr(intern!(py, "array"))?
@@ -1084,7 +1096,7 @@ fn create_tensor<'a>(
                     let module = PyModule::import(py, intern!(py, "tensorflow"))?;
                     Ok(TENSORFLOW_MODULE.get_or_init(py, || module.into()))
                 })?
-                .bind(py);
+                    .bind(py);
                 module
                     .getattr(intern!(py, "convert_to_tensor"))?
                     .call1((tensor,))?
@@ -1094,7 +1106,7 @@ fn create_tensor<'a>(
                     let module = PyModule::import(py, intern!(py, "mlx"))?;
                     Ok(MLX_MODULE.get_or_init(py, || module.into()))
                 })?
-                .bind(py);
+                    .bind(py);
                 module
                     .getattr(intern!(py, "core"))?
                     // .getattr(intern!(py, "array"))?
